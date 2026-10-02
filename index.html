@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1020">
+  <meta name="description" content="Falling blocks puzzle game. Works offline.">
+  <title>Blocks</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <style>
+    :root {
+      --bg: #0f1020;
+      --panel: #181a33;
+      --line: #2a2d52;
+      --text: #e8e9ff;
+      --muted: #8b8fc7;
+      --accent: #b45cff;
+      --btn: #23264a;
+      --btn-active: #353a70;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
+      overscroll-behavior: none;
+    }
+    #app {
+      height: 100dvh; display: flex; flex-direction: column; gap: 8px;
+      padding: max(8px, env(safe-area-inset-top)) 12px max(10px, env(safe-area-inset-bottom));
+      max-width: 520px; margin: 0 auto;
+    }
+    header { display: grid; grid-template-columns: 72px 1fr 72px; gap: 8px; align-items: stretch; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; align-items: center; }
+    .label { font-size: 10px; letter-spacing: .12em; color: var(--muted); font-weight: 600; }
+    #hold { width: 60px; height: 40px; margin-top: 4px; }
+    #next { width: 60px; height: 112px; margin-top: 4px; }
+    .stats { display: flex; flex-direction: column; gap: 6px; }
+    .stats .panel { align-items: stretch; }
+    .val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .pair .val { font-size: 17px; }
+    #pauseBtn {
+      background: var(--btn); color: var(--text); border: 1px solid var(--line);
+      border-radius: 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; padding: 8px; cursor: pointer;
+    }
+    main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; position: relative; }
+    #board { display: block; border-radius: 6px; box-shadow: 0 0 0 2px var(--line), 0 10px 40px rgba(0,0,0,.5); }
+    #overlay {
+      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; text-align: center; background: rgba(15,16,32,.82); backdrop-filter: blur(3px); border-radius: 6px;
+    }
+    #overlay.hidden { display: none; }
+    #overlay h1 { margin: 0; font-size: 34px; letter-spacing: .08em; }
+    #overlay p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; padding: 0 16px; }
+    #overlay .big { color: var(--text); font-size: 20px; font-weight: 700; }
+    .primary {
+      background: var(--accent); color: #fff; border: 0; border-radius: 12px; padding: 14px 34px;
+      font-size: 18px; font-weight: 700; letter-spacing: .06em; cursor: pointer;
+    }
+    footer {
+      display: grid; gap: 8px; height: 132px; flex-shrink: 0;
+      grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr;
+      grid-template-areas: "hold hard . ccw cw" "left down right ccw cw";
+    }
+    footer button {
+      background: var(--btn); color: var(--text); border: 1px solid var(--line); border-radius: 12px;
+      font-size: 22px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0;
+      touch-action: none; cursor: pointer;
+    }
+    footer button.small { font-size: 12px; letter-spacing: .08em; }
+    footer button.active { background: var(--btn-active); transform: scale(.96); }
+    @media (hover: hover) and (pointer: fine) {
+      footer { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="panel"><div class="label">HOLD</div><canvas id="hold"></canvas></div>
+      <div class="stats">
+        <div class="panel"><div class="label">SCORE</div><div class="val" id="score">0</div></div>
+        <div class="pair">
+          <div class="panel"><div class="label">LEVEL</div><div class="val" id="level">1</div></div>
+          <div class="panel"><div class="label">LINES</div><div class="val" id="lines">0</div></div>
+        </div>
+        <button id="pauseBtn">PAUSE</button>
+      </div>
+      <div class="panel"><div class="label">NEXT</div><canvas id="next"></canvas></div>
+    </header>
+
+    <main id="boardWrap">
+      <canvas id="board"></canvas>
+      <div id="overlay">
+        <h1 id="ovTitle">BLOCKS</h1>
+        <p id="ovText"></p>
+        <button class="primary" id="ovBtn">PLAY</button>
+      </div>
+    </main>
+
+    <footer id="controls">
+      <button data-action="hold" class="small" style="grid-area:hold">HOLD</button>
+      <button data-action="hard" style="grid-area:hard" aria-label="Hard drop">⤓</button>
+      <button data-action="left" style="grid-area:left" aria-label="Left">◀</button>
+      <button data-action="soft" style="grid-area:down" aria-label="Soft drop">▼</button>
+      <button data-action="right" style="grid-area:right" aria-label="Right">▶</button>
+      <button data-action="ccw" style="grid-area:ccw" aria-label="Rotate left">⟲</button>
+      <button data-action="cw" style="grid-area:cw" aria-label="Rotate right">⟳</button>
+    </footer>
+  </div>
+
+  <script src="game.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+    }
+  </script>
+</body>
+</html>
