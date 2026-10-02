@@ -42,38 +42,34 @@
     .val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; }
     .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .pair .val { font-size: 17px; }
-    #pauseBtn {
+    .btnrow { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+    .hbtn {
       background: var(--btn); color: var(--text); border: 1px solid var(--line);
-      border-radius: 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; padding: 8px; cursor: pointer;
+      border-radius: 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; padding: 8px 12px; cursor: pointer;
     }
+    #settingsBtn { font-size: 16px; padding: 4px 12px; }
     main { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; position: relative; }
     #board { display: block; border-radius: 6px; box-shadow: 0 0 0 2px var(--line), 0 10px 40px rgba(0,0,0,.5); }
-    #overlay {
-      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 14px; text-align: center; background: rgba(15,16,32,.82); backdrop-filter: blur(3px); border-radius: 6px;
+    .sheet {
+      position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; text-align: center; background: rgba(15,16,32,.88); backdrop-filter: blur(3px); border-radius: 6px;
     }
-    #overlay.hidden { display: none; }
+    .sheet.hidden { display: none; }
+    #settings { gap: 10px; padding: 16px; touch-action: manipulation; overflow-y: auto; }
+    #settings h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: .1em; }
+    .setting { width: 100%; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    .setting .row { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 15px; gap: 10px; }
+    .setting small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+    .setting input[type=range] { width: 100%; margin: 10px 0 0; accent-color: var(--accent); height: 28px; touch-action: pan-x; }
+    .setting input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); flex-shrink: 0; }
+    .setting output { color: var(--accent); font-variant-numeric: tabular-nums; }
+    .link { background: none; border: 0; color: var(--muted); font-size: 13px; text-decoration: underline; cursor: pointer; padding: 4px; }
     #overlay h1 { margin: 0; font-size: 34px; letter-spacing: .08em; }
     #overlay p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; padding: 0 16px; }
     #overlay .big { color: var(--text); font-size: 20px; font-weight: 700; }
     .primary {
       background: var(--accent); color: #fff; border: 0; border-radius: 12px; padding: 14px 34px;
       font-size: 18px; font-weight: 700; letter-spacing: .06em; cursor: pointer;
-    }
-    footer {
-      display: grid; gap: 8px; height: 132px; flex-shrink: 0;
-      grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr;
-      grid-template-areas: "hold hard . ccw cw" "left down right ccw cw";
-    }
-    footer button {
-      background: var(--btn); color: var(--text); border: 1px solid var(--line); border-radius: 12px;
-      font-size: 22px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0;
-      touch-action: none; cursor: pointer;
-    }
-    footer button.small { font-size: 12px; letter-spacing: .08em; }
-    footer button.active { background: var(--btn-active); transform: scale(.96); }
-    @media (hover: hover) and (pointer: fine) {
-      footer { display: none; }
     }
   </style>
 </head>
@@ -87,29 +83,42 @@
           <div class="panel"><div class="label">LEVEL</div><div class="val" id="level">1</div></div>
           <div class="panel"><div class="label">LINES</div><div class="val" id="lines">0</div></div>
         </div>
-        <button id="pauseBtn">PAUSE</button>
+        <div class="btnrow">
+          <button class="hbtn" id="pauseBtn">PAUSE</button>
+          <button class="hbtn" id="settingsBtn" aria-label="Settings">⚙</button>
+        </div>
       </div>
       <div class="panel"><div class="label">NEXT</div><canvas id="next"></canvas></div>
     </header>
 
     <main id="boardWrap">
       <canvas id="board"></canvas>
-      <div id="overlay">
+      <div id="overlay" class="sheet">
         <h1 id="ovTitle">BLOCKS</h1>
         <p id="ovText"></p>
         <button class="primary" id="ovBtn">PLAY</button>
       </div>
+      <div id="settings" class="sheet hidden">
+        <h2>SETTINGS</h2>
+        <div class="setting">
+          <div class="row"><span>Swipe sensitivity</span><output id="moveSensOut"></output></div>
+          <input type="range" id="moveSens" min="1" max="10" step="1">
+          <small>Lower means you drag farther to move one column.</small>
+        </div>
+        <div class="setting">
+          <div class="row"><span>Drop flick sensitivity</span><output id="dropSensOut"></output></div>
+          <input type="range" id="dropSens" min="1" max="10" step="1">
+          <small>Lower means you flick down harder to hard drop.</small>
+        </div>
+        <label class="setting">
+          <div class="row"><span>Lock swipe direction</span><input type="checkbox" id="axisLock"></div>
+          <small>A swipe that starts sideways can't drop, and a downward swipe can't slide sideways.</small>
+        </label>
+        <button class="primary" id="settingsDone">DONE</button>
+        <button class="link" id="settingsReset">Reset to defaults</button>
+      </div>
     </main>
 
-    <footer id="controls">
-      <button data-action="hold" class="small" style="grid-area:hold">HOLD</button>
-      <button data-action="hard" style="grid-area:hard" aria-label="Hard drop">⤓</button>
-      <button data-action="left" style="grid-area:left" aria-label="Left">◀</button>
-      <button data-action="soft" style="grid-area:down" aria-label="Soft drop">▼</button>
-      <button data-action="right" style="grid-area:right" aria-label="Right">▶</button>
-      <button data-action="ccw" style="grid-area:ccw" aria-label="Rotate left">⟲</button>
-      <button data-action="cw" style="grid-area:cw" aria-label="Rotate right">⟳</button>
-    </footer>
   </div>
 
   <script src="game.js"></script>

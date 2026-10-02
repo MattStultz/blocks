@@ -1,5 +1,5 @@
 // Bump VERSION whenever you change any app file so installed copies update.
-const VERSION = 'blocks-v1';
+const VERSION = 'blocks-v3';
 const ASSETS = [
   './',
   'index.html',
@@ -11,7 +11,12 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(VERSION).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' bypasses the browser's HTTP cache so we never store stale copies.
+  event.waitUntil(
+    caches.open(VERSION)
+      .then(cache => cache.addAll(ASSETS.map(url => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', event => {
@@ -22,9 +27,19 @@ self.addEventListener('activate', event => {
   );
 });
 
+// Network first so updates show up right away; fall back to the cache when offline.
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
+  const req = event.request;
+  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   event.respondWith(
-    caches.match(event.request, { ignoreSearch: true }).then(hit => hit || fetch(event.request))
+    fetch(req, { cache: 'no-cache' })
+      .then(res => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(VERSION).then(cache => cache.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req, { ignoreSearch: true }))
   );
 });

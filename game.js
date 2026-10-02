@@ -69,6 +69,8 @@
   const boardWrap = $('boardWrap');
   const overlay = $('overlay'), ovTitle = $('ovTitle'), ovText = $('ovText'), ovBtn = $('ovBtn');
   const scoreEl = $('score'), levelEl = $('level'), linesEl = $('lines'), pauseBtn = $('pauseBtn');
+  const settingsSheet = $('settings'), settingsBtn = $('settingsBtn');
+  const moveSensEl = $('moveSens'), dropSensEl = $('dropSens'), axisLockEl = $('axisLock');
 
   // ---------- Storage ----------
   const store = {
@@ -76,6 +78,14 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   };
   let highScore = store.get('blocks.high', 0);
+
+  // ---------- Settings ----------
+  const DEFAULT_SETTINGS = { moveSens: 4, dropSens: 4, axisLock: true };
+  let settings = { ...DEFAULT_SETTINGS, ...store.get('blocks.settings', {}) };
+  // Cells of finger travel needed to move one column (sens 1 → 1.8 cells, sens 10 → 0.54).
+  const dragPerColumn = () => 1.8 - (settings.moveSens - 1) * 0.14;
+  // Finger speed (px/ms) a downward flick needs to hard drop (sens 1 → 2.2, sens 10 → 0.6).
+  const flickSpeed = () => 2.2 - (settings.dropSens - 1) * 0.178;
 
   // ---------- Game state ----------
   let board, cur, queue, bag, holdType, canHold;
@@ -296,6 +306,41 @@
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 
+  function syncSettingsUI() {
+    moveSensEl.value = settings.moveSens;
+    dropSensEl.value = settings.dropSens;
+    axisLockEl.checked = settings.axisLock;
+    $('moveSensOut').textContent = settings.moveSens;
+    $('dropSensOut').textContent = settings.dropSens;
+  }
+  function saveSettings() {
+    settings.moveSens = +moveSensEl.value;
+    settings.dropSens = +dropSensEl.value;
+    settings.axisLock = axisLockEl.checked;
+    store.set('blocks.settings', settings);
+    syncSettingsUI();
+  }
+  function openSettings() {
+    pause();
+    syncSettingsUI();
+    overlay.classList.add('hidden');
+    settingsSheet.classList.remove('hidden');
+  }
+  function closeSettings() {
+    settingsSheet.classList.add('hidden');
+    overlay.classList.remove('hidden'); // back to the menu / pause / game-over screen
+  }
+  [moveSensEl, dropSensEl, axisLockEl].forEach(el => el.addEventListener('input', saveSettings));
+  settingsBtn.addEventListener('click', () => {
+    if (settingsSheet.classList.contains('hidden')) openSettings(); else closeSettings();
+  });
+  $('settingsDone').addEventListener('click', closeSettings);
+  $('settingsReset').addEventListener('click', () => {
+    settings = { ...DEFAULT_SETTINGS };
+    store.set('blocks.settings', settings);
+    syncSettingsUI();
+  });
+
   // ---------- Rendering ----------
   let cell = 24;
   const dpr = () => window.devicePixelRatio || 1;
@@ -313,9 +358,10 @@
     const w = boardWrap.clientWidth, h = boardWrap.clientHeight;
     cell = Math.max(8, Math.floor(Math.min(w / COLS, h / ROWS)));
     sizeCanvas(boardCanvas, bctx, cell * COLS, cell * ROWS);
-    overlay.style.width = cell * COLS + 'px';
-    overlay.style.height = cell * ROWS + 'px';
-    overlay.style.inset = 'auto';
+    for (const sheet of [overlay, settingsSheet]) {
+      sheet.style.width = cell * COLS + 'px';
+      sheet.style.height = cell * ROWS + 'px';
+    }
     sizeCanvas(holdCanvas, hctx, holdCanvas.clientWidth || 60, holdCanvas.clientHeight || 40);
     sizeCanvas(nextCanvas, nctx, nextCanvas.clientWidth || 60, nextCanvas.clientHeight || 112);
     drawSide();
@@ -440,7 +486,6 @@
   function stopAllRepeats() {
     for (const a of [...repeats.keys()]) stopAction(a);
     softDrop = false;
-    document.querySelectorAll('footer button.active').forEach(b => b.classList.remove('active'));
   }
 
   // ---------- Input: keyboard ----------
@@ -469,64 +514,67 @@
   });
   window.addEventListener('blur', stopAllRepeats);
 
-  // ---------- Input: on-screen buttons ----------
-  document.querySelectorAll('footer button').forEach(btn => {
-    const a = btn.dataset.action;
-    const end = e => { e.preventDefault(); btn.classList.remove('active'); stopAction(a); };
-    btn.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      btn.setPointerCapture?.(e.pointerId);
-      btn.classList.add('active');
-      startAction(a);
-    });
-    btn.addEventListener('pointerup', end);
-    btn.addEventListener('pointercancel', end);
-    btn.addEventListener('lostpointercapture', end);
-    btn.addEventListener('contextmenu', e => e.preventDefault());
-  });
-
-  // ---------- Input: gestures on the board ----------
-  // Tap = rotate, drag sideways = move, drag down = soft drop, flick down = hard drop, flick up = hold.
+  // ---------- Input: touch gestures ----------
+  // Tap = rotate (left third rotates the other way), drag sideways = move, drag down = soft drop,
+  // flick down = hard drop, flick up = hold. Listens on the whole play area, not just the board.
+  const AXIS_COMMIT = 10; // px of travel before a swipe's direction is decided
   let gesture = null;
-  boardCanvas.addEventListener('pointerdown', e => {
-    if (state !== 'playing') return;
-    boardCanvas.setPointerCapture?.(e.pointerId);
-    gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), stepX: 0, stepY: 0,
-                lastY: e.clientY, lastT: performance.now(), vy: 0, moved: false };
-  });
-  boardCanvas.addEventListener('pointermove', e => {
-    if (!gesture || e.pointerId !== gesture.id || state !== 'playing' || !cur) return;
-    const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
+
+  boardWrap.addEventListener('pointerdown', e => {
+    if (state !== 'playing' || gesture) return;
+    try { boardWrap.setPointerCapture(e.pointerId); } catch {}
     const now = performance.now();
-    gesture.vy = (e.clientY - gesture.lastY) / Math.max(1, now - gesture.lastT);
-    gesture.lastY = e.clientY; gesture.lastT = now;
-    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) gesture.moved = true;
+    gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: now, stepX: 0, stepY: 0,
+                axis: null, moved: false, samples: [{ y: e.clientY, t: now }] };
+  });
 
-    const tx = Math.trunc(dx / (cell * 0.9));
-    while (gesture.stepX < tx) { act('right'); gesture.stepX++; }
-    while (gesture.stepX > tx) { act('left'); gesture.stepX--; }
+  boardWrap.addEventListener('pointermove', e => {
+    const g = gesture;
+    if (!g || e.pointerId !== g.id || state !== 'playing' || !cur) return;
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    const now = performance.now();
+    g.samples.push({ y: e.clientY, t: now });
+    while (g.samples.length > 2 && now - g.samples[0].t > 80) g.samples.shift();
 
-    if (dy > 0 && Math.abs(dy) > Math.abs(dx)) {
-      const ty = Math.trunc(dy / cell);
-      while (gesture.stepY < ty) { if (move(0, 1)) score += 1; gesture.stepY++; }
+    if (!g.moved && Math.hypot(dx, dy) > AXIS_COMMIT) {
+      g.moved = true;
+      g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (!g.moved) return;
+    const lock = settings.axisLock;
+
+    if (!lock || g.axis === 'x') {
+      const tx = Math.trunc(dx / (cell * dragPerColumn()));
+      while (g.stepX < tx) { act('right'); g.stepX++; }
+      while (g.stepX > tx) { act('left'); g.stepX--; }
+    }
+    if ((!lock || g.axis === 'y') && dy > 0) {
+      const ty = Math.trunc(dy / (cell * dragPerColumn()));
+      while (g.stepY < ty) { if (move(0, 1)) score += 1; g.stepY++; }
     }
   });
-  const endGesture = e => {
-    if (!gesture || e.pointerId !== gesture.id) return;
-    const g = gesture; gesture = null;
+
+  function endGesture(e) {
+    const g = gesture;
+    if (!g || e.pointerId !== g.id) return;
+    gesture = null;
     if (state !== 'playing') return;
     const dx = e.clientX - g.x0, dy = e.clientY - g.y0, dt = performance.now() - g.t0;
+    const first = g.samples[0]; // finger speed over roughly the last 80ms
+    const vy = (e.clientY - first.y) / Math.max(1, performance.now() - first.t);
+    const vertical = settings.axisLock ? g.axis === 'y' : Math.abs(dy) > Math.abs(dx);
+
     if (!g.moved && dt < 300) {
       const rect = boardCanvas.getBoundingClientRect();
       act(e.clientX - rect.left < rect.width / 3 ? 'ccw' : 'cw');
-    } else if (dy > cell * 1.5 && g.vy > 0.9 && Math.abs(dy) > Math.abs(dx)) {
+    } else if (vertical && dy > cell * 1.5 && vy > flickSpeed()) {
       act('hard');
-    } else if (dy < -cell * 2 && Math.abs(dy) > Math.abs(dx) * 1.5 && dt < 400) {
+    } else if (vertical && dy < -cell * 2 && dt < 400) {
       act('hold');
     }
-  };
-  boardCanvas.addEventListener('pointerup', endGesture);
-  boardCanvas.addEventListener('pointercancel', e => { if (gesture && e.pointerId === gesture.id) gesture = null; });
+  }
+  boardWrap.addEventListener('pointerup', endGesture);
+  boardWrap.addEventListener('pointercancel', e => { if (gesture && e.pointerId === gesture.id) gesture = null; });
 
   // ---------- Main loop ----------
   let last = performance.now();
